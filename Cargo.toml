@@ -1,0 +1,59 @@
+[package]
+name = "notes-api"
+version = "0.1.0"
+edition = "2021"
+description = "A clean architecture example: Note-taking API in Rust"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/example/notes-api"
+keywords = ["clean-architecture", "hexagonal", "example", "learning"]
+categories = ["web-programming"]
+publish = false
+
+[workspace]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.45", features = ["full"] }
+
+# Web framework
+poem = { version = "3.0", features = ["tower-compat", "cookie"] }
+poem-openapi = { version = "5.0", features = ["chrono", "uuid"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0"
+eyre = "0.6"
+color-eyre = "0.6"
+
+# CLI argument parsing
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Authentication
+jsonwebtoken = "9.3"
+
+# Utilities
+uuid = { version = "1.16", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+secrecy = "0.10"
+
+[dev-dependencies]
+mockall = "0.13"
+tokio-test = "0.4"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# Allow some pedantic lints that are too strict
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+doc_markdown = "allow"
