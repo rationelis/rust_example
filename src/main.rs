@@ -1,4 +1,7 @@
 //! Notes API - Clean architecture example in Rust.
+//!
+//! This is the entry point for the application. It sets up the CLI, logging,
+//! and starts the HTTP server.
 
 mod adapter;
 mod auth;
@@ -9,7 +12,6 @@ use std::sync::Arc;
 
 use adapter::web::NoteApi;
 use clap::{Parser, Subcommand};
-use eyre::Context;
 use persistence::memory::InMemoryNoteRepository;
 use poem::{
     get, handler, http::StatusCode, listener::TcpListener, middleware::Cors, EndpointExt, Route,
@@ -66,9 +68,7 @@ fn api_service() -> OpenApiService<NoteApi, ()> {
 }
 
 #[tokio::main]
-async fn main() -> eyre::Result<()> {
-    color_eyre::install()?;
-
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
@@ -92,7 +92,7 @@ async fn main() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn server(config: ServerConfig) -> eyre::Result<()> {
+async fn server(config: ServerConfig) -> Result<(), std::io::Error> {
     tracing::info!(host = %config.host, port = %config.port, dev_mode = %config.dev_mode, "Starting server");
 
     let api_service = api_service().server(format!("http://{}:{}", config.host, config.port));
@@ -116,12 +116,7 @@ async fn server(config: ServerConfig) -> eyre::Result<()> {
     let addr = format!("{}:{}", config.host, config.port);
     tracing::info!(address = %addr, "Server listening");
 
-    Server::new(TcpListener::bind(&addr))
-        .run(app)
-        .await
-        .wrap_err("Failed to run server")?;
-
-    Ok(())
+    Server::new(TcpListener::bind(&addr)).run(app).await
 }
 
 #[handler]

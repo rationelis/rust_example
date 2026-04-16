@@ -1,13 +1,21 @@
 //! In-memory repository implementation.
+//!
+//! This is a simple implementation for educational purposes.
+//! In a real application, you would implement `NoteRepository` for a database client.
 
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+use error_stack::{Report, ResultExt};
 use uuid::Uuid;
 
-use super::{NoteRepository, RepositoryError, RepositoryResult};
+use super::{NoteRepository, RepositoryError};
 use crate::domain::note::Note;
 
+/// In-memory note storage using a `RwLock<HashMap>`.
+///
+/// This implementation demonstrates the repository pattern without external dependencies.
+/// Data is lost when the server stops — this is intentional for educational purposes.
 #[derive(Debug)]
 pub struct InMemoryNoteRepository {
     notes: RwLock<HashMap<Uuid, Note>>,
@@ -38,11 +46,12 @@ impl Clone for InMemoryNoteRepository {
 }
 
 impl NoteRepository for InMemoryNoteRepository {
-    async fn list(&self, user_id: &str) -> RepositoryResult<Vec<Note>> {
+    async fn list(&self, user_id: &str) -> Result<Vec<Note>, Report<RepositoryError>> {
         let notes = self
             .notes
             .read()
-            .map_err(|e| RepositoryError::Storage(format!("Failed to acquire read lock: {e}")))?;
+            .map_err(|_| Report::new(RepositoryError::StorageError))
+            .attach_printable("Failed to acquire read lock for listing notes")?;
 
         let user_notes: Vec<Note> = notes
             .values()
@@ -53,59 +62,70 @@ impl NoteRepository for InMemoryNoteRepository {
         Ok(user_notes)
     }
 
-    async fn get(&self, user_id: &str, note_id: Uuid) -> RepositoryResult<Note> {
+    async fn get(&self, user_id: &str, note_id: Uuid) -> Result<Note, Report<RepositoryError>> {
         let notes = self
             .notes
             .read()
-            .map_err(|e| RepositoryError::Storage(format!("Failed to acquire read lock: {e}")))?;
+            .map_err(|_| Report::new(RepositoryError::StorageError))
+            .attach_printable("Failed to acquire read lock for getting note")?;
 
-        let note = notes.get(&note_id).ok_or(RepositoryError::NotFound)?;
+        let note = notes
+            .get(&note_id)
+            .ok_or_else(|| Report::new(RepositoryError::NotFound { note_id }))?;
 
         if note.user_id() != user_id {
-            return Err(RepositoryError::Forbidden);
+            return Err(Report::new(RepositoryError::Forbidden { note_id }));
         }
 
         Ok(note.clone())
     }
 
-    async fn create(&self, note: Note) -> RepositoryResult<Note> {
+    async fn create(&self, note: Note) -> Result<Note, Report<RepositoryError>> {
         let mut notes = self
             .notes
             .write()
-            .map_err(|e| RepositoryError::Storage(format!("Failed to acquire write lock: {e}")))?;
+            .map_err(|_| Report::new(RepositoryError::StorageError))
+            .attach_printable("Failed to acquire write lock for creating note")?;
 
         notes.insert(note.id(), note.clone());
 
         Ok(note)
     }
 
-    async fn update(&self, user_id: &str, note: Note) -> RepositoryResult<Note> {
+    async fn update(&self, user_id: &str, note: Note) -> Result<Note, Report<RepositoryError>> {
         let mut notes = self
             .notes
             .write()
-            .map_err(|e| RepositoryError::Storage(format!("Failed to acquire write lock: {e}")))?;
+            .map_err(|_| Report::new(RepositoryError::StorageError))
+            .attach_printable("Failed to acquire write lock for updating note")?;
 
-        let existing = notes.get(&note.id()).ok_or(RepositoryError::NotFound)?;
+        let note_id = note.id();
+        let existing = notes
+            .get(&note_id)
+            .ok_or_else(|| Report::new(RepositoryError::NotFound { note_id }))?;
 
         if existing.user_id() != user_id {
-            return Err(RepositoryError::Forbidden);
+            return Err(Report::new(RepositoryError::Forbidden { note_id }));
         }
 
-        notes.insert(note.id(), note.clone());
+        notes.insert(note_id, note.clone());
 
         Ok(note)
     }
 
-    async fn delete(&self, user_id: &str, note_id: Uuid) -> RepositoryResult<()> {
+    async fn delete(&self, user_id: &str, note_id: Uuid) -> Result<(), Report<RepositoryError>> {
         let mut notes = self
             .notes
             .write()
-            .map_err(|e| RepositoryError::Storage(format!("Failed to acquire write lock: {e}")))?;
+            .map_err(|_| Report::new(RepositoryError::StorageError))
+            .attach_printable("Failed to acquire write lock for deleting note")?;
 
-        let existing = notes.get(&note_id).ok_or(RepositoryError::NotFound)?;
+        let existing = notes
+            .get(&note_id)
+            .ok_or_else(|| Report::new(RepositoryError::NotFound { note_id }))?;
 
         if existing.user_id() != user_id {
-            return Err(RepositoryError::Forbidden);
+            return Err(Report::new(RepositoryError::Forbidden { note_id }));
         }
 
         notes.remove(&note_id);
@@ -168,7 +188,10 @@ mod tests {
     async fn it_should_return_not_found_for_missing_note() {
         let repo = InMemoryNoteRepository::new();
         let result = repo.get("user-1", Uuid::new_v4()).await;
-        assert!(matches!(result, Err(RepositoryError::NotFound)));
+        assert!(matches!(
+            result.unwrap_err().current_context(),
+            RepositoryError::NotFound { .. }
+        ));
     }
 
     #[tokio::test]
@@ -179,7 +202,10 @@ mod tests {
         repo.create(note).await.unwrap();
 
         let result = repo.get("user-2", note_id).await;
-        assert!(matches!(result, Err(RepositoryError::Forbidden)));
+        assert!(matches!(
+            result.unwrap_err().current_context(),
+            RepositoryError::Forbidden { .. }
+        ));
     }
 
     #[tokio::test]
@@ -206,7 +232,10 @@ mod tests {
 
         let retrieved = repo.get("user-1", note_id).await.unwrap();
         let result = repo.update("user-2", retrieved).await;
-        assert!(matches!(result, Err(RepositoryError::Forbidden)));
+        assert!(matches!(
+            result.unwrap_err().current_context(),
+            RepositoryError::Forbidden { .. }
+        ));
     }
 
     #[tokio::test]
@@ -219,7 +248,10 @@ mod tests {
         repo.delete("user-1", note_id).await.unwrap();
 
         let result = repo.get("user-1", note_id).await;
-        assert!(matches!(result, Err(RepositoryError::NotFound)));
+        assert!(matches!(
+            result.unwrap_err().current_context(),
+            RepositoryError::NotFound { .. }
+        ));
     }
 
     #[tokio::test]
@@ -230,13 +262,19 @@ mod tests {
         repo.create(note).await.unwrap();
 
         let result = repo.delete("user-2", note_id).await;
-        assert!(matches!(result, Err(RepositoryError::Forbidden)));
+        assert!(matches!(
+            result.unwrap_err().current_context(),
+            RepositoryError::Forbidden { .. }
+        ));
     }
 
     #[tokio::test]
     async fn it_should_return_not_found_when_deleting_missing_note() {
         let repo = InMemoryNoteRepository::new();
         let result = repo.delete("user-1", Uuid::new_v4()).await;
-        assert!(matches!(result, Err(RepositoryError::NotFound)));
+        assert!(matches!(
+            result.unwrap_err().current_context(),
+            RepositoryError::NotFound { .. }
+        ));
     }
 }

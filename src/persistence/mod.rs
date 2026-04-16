@@ -9,22 +9,31 @@
 
 pub mod memory;
 
+use error_stack::Report;
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::domain::note::Note;
 
+/// Persistence layer errors.
+///
+/// These errors represent what can go wrong at the storage level.
+/// Domain-relevant errors (like `NotFound`, `Forbidden`) are kept separate
+/// from infrastructure errors (`StorageError`) which maps to `Unexpected` in the domain layer.
 #[derive(Debug, Error)]
 pub enum RepositoryError {
-    #[error("Note not found")]
-    NotFound,
-    #[error("Note does not belong to user")]
-    Forbidden,
-    #[error("Storage error: {0}")]
-    Storage(String),
-}
+    /// The requested note was not found.
+    #[error("Note with id {note_id} not found")]
+    NotFound { note_id: Uuid },
 
-pub type RepositoryResult<T> = Result<T, RepositoryError>;
+    /// The note does not belong to the requesting user.
+    #[error("Note {note_id} does not belong to user")]
+    Forbidden { note_id: Uuid },
+
+    /// Infrastructure/storage error (maps to `Unexpected` in domain layer).
+    #[error("Storage operation failed")]
+    StorageError,
+}
 
 /// Contract for note storage. Implementations can be in-memory, PostgreSQL, etc.
 ///
@@ -32,34 +41,36 @@ pub type RepositoryResult<T> = Result<T, RepositoryError>;
 /// - `Clone`: Allows sharing the repository across handlers
 /// - `Send + Sync`: Required for async runtimes (multiple threads)
 /// - `'static`: Required for use in async contexts and Poem's data extraction
+///
+/// All methods return `Result<T, Report<RepositoryError>>` following the error-stack pattern.
 pub trait NoteRepository: Clone + Send + Sync + 'static {
     fn list(
         &self,
         user_id: &str,
-    ) -> impl std::future::Future<Output = RepositoryResult<Vec<Note>>> + Send;
+    ) -> impl std::future::Future<Output = Result<Vec<Note>, Report<RepositoryError>>> + Send;
 
     fn get(
         &self,
         user_id: &str,
         note_id: Uuid,
-    ) -> impl std::future::Future<Output = RepositoryResult<Note>> + Send;
+    ) -> impl std::future::Future<Output = Result<Note, Report<RepositoryError>>> + Send;
 
     fn create(
         &self,
         note: Note,
-    ) -> impl std::future::Future<Output = RepositoryResult<Note>> + Send;
+    ) -> impl std::future::Future<Output = Result<Note, Report<RepositoryError>>> + Send;
 
     fn update(
         &self,
         user_id: &str,
         note: Note,
-    ) -> impl std::future::Future<Output = RepositoryResult<Note>> + Send;
+    ) -> impl std::future::Future<Output = Result<Note, Report<RepositoryError>>> + Send;
 
     fn delete(
         &self,
         user_id: &str,
         note_id: Uuid,
-    ) -> impl std::future::Future<Output = RepositoryResult<()>> + Send;
+    ) -> impl std::future::Future<Output = Result<(), Report<RepositoryError>>> + Send;
 }
 
 #[cfg(test)]
@@ -74,11 +85,11 @@ pub mod mock {
         }
 
         impl NoteRepository for NoteRepository {
-            async fn list(&self, user_id: &str) -> RepositoryResult<Vec<Note>>;
-            async fn get(&self, user_id: &str, note_id: Uuid) -> RepositoryResult<Note>;
-            async fn create(&self, note: Note) -> RepositoryResult<Note>;
-            async fn update(&self, user_id: &str, note: Note) -> RepositoryResult<Note>;
-            async fn delete(&self, user_id: &str, note_id: Uuid) -> RepositoryResult<()>;
+            async fn list(&self, user_id: &str) -> Result<Vec<Note>, Report<RepositoryError>>;
+            async fn get(&self, user_id: &str, note_id: Uuid) -> Result<Note, Report<RepositoryError>>;
+            async fn create(&self, note: Note) -> Result<Note, Report<RepositoryError>>;
+            async fn update(&self, user_id: &str, note: Note) -> Result<Note, Report<RepositoryError>>;
+            async fn delete(&self, user_id: &str, note_id: Uuid) -> Result<(), Report<RepositoryError>>;
         }
     }
 }

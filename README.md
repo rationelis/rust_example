@@ -7,7 +7,7 @@
 - **Dependency Inversion**: Core business logic depends on traits, not concrete implementations
 - **Layered Architecture**: Clear separation between HTTP, domain, and persistence concerns
 - **Generic Services**: `NoteService<R: NoteRepository>` accepts any repository implementation
-- **Error Handling**: Each layer defines its own error types with clean mapping between layers
+- **Error Handling with error-stack**: Each layer defines focused error types with domain variants (e.g., `NotFound`, `Forbidden`) plus a single `Unexpected` variant for all infrastructure errors. The [error-stack](https://docs.rs/error-stack) crate provides error context chains via `Report<T>`, enabling full traceability without leaking implementation details across layers.
 
 ## Architecture
 
